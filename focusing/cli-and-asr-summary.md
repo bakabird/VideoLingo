@@ -7,6 +7,7 @@
 1. VideoLingo 支持通过命令行完成批量产出，但当前形态是“Excel 配置 + Python 批处理脚本”，不是带参数的正式 CLI。
 2. 字幕识别主线是 WhisperX 词级时间戳识别，默认本地运行；也支持 302.ai WhisperX API；ElevenLabs ASR 分支处于实验性质，当前代码存在下游兼容风险。
 3. 产出链路覆盖字幕视频和可选配音视频：无配音时生成字幕视频；开启配音时继续生成配音音轨并合成最终配音视频。
+4. 中国内地接入阿里云百炼 Fun-ASR 时，应使用北京地域 API Key 和北京 WebSocket 地址；通用 16k 场景优先 `fun-asr-realtime`，电话 8k 场景使用 `fun-asr-flash-8k-realtime`。
 
 ## 1. 是否支持通过 CLI 完成产出操作
 
@@ -324,6 +325,162 @@ whisper:
 
 当前代码里 `elev2whisper()` 默认 `word_level_timestamp=False`，会移除 `words` 字段；但下游 `process_transcription()` 期待 `segment['words']`。因此这个后端在当前代码状态下存在兼容风险，不应视为主推稳定方案。
 
+### Fun-ASR 中国内地接入要点
+
+Fun-ASR 是阿里云百炼 / DashScope 的实时语音识别模型，适合做“边传音频边出文字”的实时转写，也可以把本地音频文件按小块模拟实时流发送。
+
+#### 地域与鉴权
+
+中国内地接入必须按国内地域配置：
+
+| 项目 | 配置 |
+| --- | --- |
+| 服务部署范围 | 中国内地 |
+| 接入地域 | 北京 |
+| API Key | 使用百炼控制台北京地域 API Key |
+| WebSocket 地址 | `wss://dashscope.aliyuncs.com/api-ws/v1/inference` |
+| 环境变量 | `DASHSCOPE_API_KEY` |
+
+不要混用新加坡 / 国际地域 API Key。国际地域的 WebSocket 地址是 `wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference`，不适用于这里的中国内地接入口径。
+
+#### 模型选择
+
+中国内地可用的 Fun-ASR 实时模型：
+
+| 场景 | 推荐模型 | 采样率 | 说明 |
+| --- | --- | --- | --- |
+| 普通会议、直播、视频字幕 | `fun-asr-realtime` | 16kHz | 稳定版，当前等同 `fun-asr-realtime-2025-11-07` |
+| 希望使用最新快照 | `fun-asr-realtime-2026-02-28` | 16kHz | 最新快照版，适合验证新效果 |
+| 固定版本回归 | `fun-asr-realtime-2025-11-07` / `fun-asr-realtime-2025-09-15` | 16kHz | 适合锁定版本 |
+| 中文电话客服、低带宽电话录音 | `fun-asr-flash-8k-realtime` | 8kHz | 稳定版，当前等同 `fun-asr-flash-8k-realtime-2026-01-28` |
+
+保守选择：
+
+```text
+普通视频 / 会议 / 直播字幕：fun-asr-realtime
+中文方言或想测试新版本：fun-asr-realtime-2026-02-28
+电话 8k 音频：fun-asr-flash-8k-realtime
+```
+
+8k 电话音频不要先升采样到 16k 再送通用模型，应直接使用 8k 模型，避免信息失真。
+
+#### 音频输入要求
+
+| 项目 | 要求 |
+| --- | --- |
+| 音频格式 | `pcm`、`wav`、`mp3`、`opus`、`speex`、`aac`、`amr` |
+| 声道 | 单声道 |
+| 输入形式 | 二进制音频流 |
+| 通用模型采样率 | 16kHz |
+| Flash 8k 模型采样率 | 8kHz |
+| 时长 | 实时流式输入，不限时长 |
+
+推荐在接入层统一转成单声道、16-bit PCM，并按 100ms 左右的小块发送。16kHz、16-bit、单声道 PCM 下，`3200` 字节约等于 100ms 音频。
+
+#### Python SDK 最小接入流程
+
+依赖：
+
+```bash
+pip install dashscope
+```
+
+如果要直接从麦克风采集，还需要：
+
+```bash
+pip install pyaudio
+```
+
+核心流程：
+
+```python
+import os
+import dashscope
+from dashscope.audio.asr import Recognition, RecognitionCallback, RecognitionResult
+
+dashscope.api_key = os.environ["DASHSCOPE_API_KEY"]
+dashscope.base_websocket_api_url = "wss://dashscope.aliyuncs.com/api-ws/v1/inference"
+
+
+class Callback(RecognitionCallback):
+    def on_event(self, result: RecognitionResult) -> None:
+        sentence = result.get_sentence()
+        if "text" not in sentence:
+            return
+
+        text = sentence["text"]
+        if RecognitionResult.is_sentence_end(sentence):
+            print("Final:", text)
+        else:
+            print("Partial:", text)
+
+    def on_error(self, message) -> None:
+        print("ASR error:", message)
+
+    def on_complete(self) -> None:
+        print("ASR complete")
+
+
+recognition = Recognition(
+    model="fun-asr-realtime",
+    format="pcm",
+    sample_rate=16000,
+    callback=Callback(),
+)
+
+recognition.start()
+
+# 将音频数据按小块持续送入；例如 16k PCM 每次 3200 字节。
+# recognition.send_audio_frame(audio_chunk)
+
+recognition.stop()
+```
+
+识别本地文件时不要一次性作为普通文件上传，而是读取文件后分块调用 `send_audio_frame()`。为了模拟实时流，示例代码按 `3200` 字节发送，并在每块后 `sleep(0.1)`。
+
+#### 回调结果处理
+
+SDK 会持续回调中间结果和句子结束结果：
+
+| 回调 | 用途 |
+| --- | --- |
+| `on_event` | 接收实时识别结果 |
+| `RecognitionResult.is_sentence_end(sentence)` | 判断当前句是否为最终结果 |
+| `result.get_request_id()` | 排查请求问题 |
+| `result.get_usage(sentence)` | 查看用量 |
+| `recognition.get_first_package_delay()` | 统计首包延迟 |
+| `recognition.get_last_package_delay()` | 统计尾包延迟 |
+
+Fun-ASR 固定开启标点、时间戳、ITN 和 VAD；热词功能支持中国内地地域，适合提升品牌名、人名、专有术语识别准确率。
+
+#### 接入 VideoLingo 的工程判断
+
+如果把 Fun-ASR 加到当前 VideoLingo ASR 后端，建议作为新的云端 ASR runtime，而不是替换 WhisperX 主线：
+
+```text
+config.yaml
+  whisper.runtime: 'fun_asr'
+        │
+        ▼
+core/asr_backend/fun_asr.py
+        │
+        ▼
+DashScope Recognition WebSocket
+        │
+        ▼
+转换为当前下游需要的 segments / words / start / end 结构
+```
+
+当前下游对 ASR 结果的关键要求是词级或近似词级时间戳，最终会进入 `process_transcription()` 并产出 `output/log/cleaned_chunks.xlsx`。因此 Fun-ASR 后端不能只返回整句文本，需要保留并转换服务端返回的时间戳结构。
+
+#### 生产注意事项
+
+1. 客户端要实现重连：在 `on_error` 中标记失败，清理当前连接，等待后创建新的 `Recognition` 实例重试。
+2. 长连接场景建议开启心跳能力，避免长时间静音导致连接断开。
+3. 使用热词维护业务词表，尤其是品牌名、人名、课程名、产品名。
+4. ASR 前尽量做音频清洗：降噪、回声消除、统一采样率、单声道。
+5. 注意限流：Fun-ASR RPS 参考值为 20，批量并发时要做队列和退避。
+
 ### Demucs 人声分离
 
 配置：
@@ -401,4 +558,3 @@ videolingo asr --input demo.mp4 --runtime local
 对外描述时建议这样说：
 
 > VideoLingo 当前支持通过批处理脚本在命令行完成产出，任务通过 `batch/tasks_setting.xlsx` 配置，适合批量自动化处理；但尚未提供完整参数化 CLI。字幕识别默认使用本地 WhisperX 进行词级时间戳转录与对齐，可切换到 302.ai WhisperX API，ElevenLabs ASR 为实验支持。
-
