@@ -13,6 +13,10 @@ def config_input(label, key, help=None, placeholder=None):
     return val
 
 
+def _option_index(options, current, default=0):
+    return options.index(current) if current in options else default
+
+
 def _fetch_model_list(base_url, api_key):
     """Fetch available models from OpenAI-compatible /v1/models endpoint."""
     if not api_key or not base_url:
@@ -156,33 +160,43 @@ def page_setting():
             update_key("api.llm_support_json", llm_support_json)
             st.rerun()
     with st.expander(t("Subtitles Settings"), expanded=True):
+        current_runtime = load_key("whisper.runtime")
         c1, c2 = st.columns(2)
         with c1:
-            langs = {
-                "🇺🇸 English": "en",
-                "🇨🇳 简体中文": "zh",
-                "🇪🇸 Español": "es",
-                "🇷🇺 Русский": "ru",
-                "🇫🇷 Français": "fr",
-                "🇩🇪 Deutsch": "de",
-                "🇮🇹 Italiano": "it",
-                "🇯🇵 日本語": "ja",
-            }
+            if current_runtime == "fun_asr_file":
+                langs = {
+                    "🇯🇵 日本語": "ja",
+                    "🇨🇳 简体中文": "zh",
+                    "🇺🇸 English": "en",
+                }
+            else:
+                langs = {
+                    "🇺🇸 English": "en",
+                    "🇨🇳 简体中文": "zh",
+                    "🇪🇸 Español": "es",
+                    "🇷🇺 Русский": "ru",
+                    "🇫🇷 Français": "fr",
+                    "🇩🇪 Deutsch": "de",
+                    "🇮🇹 Italiano": "it",
+                    "🇯🇵 日本語": "ja",
+                }
+            current_language = load_key("whisper.language")
             lang = st.selectbox(
                 t("Recog Lang"),
                 options=list(langs.keys()),
-                index=list(langs.values()).index(load_key("whisper.language")),
+                index=_option_index(list(langs.values()), current_language),
             )
             if langs[lang] != load_key("whisper.language"):
                 update_key("whisper.language", langs[lang])
                 st.rerun()
 
+        runtime_options = ["local", "cloud", "elevenlabs", "fun_asr_file"]
         runtime = st.selectbox(
             t("WhisperX Runtime"),
-            options=["local", "cloud", "elevenlabs"],
-            index=["local", "cloud", "elevenlabs"].index(load_key("whisper.runtime")),
+            options=runtime_options,
+            index=_option_index(runtime_options, current_runtime),
             help=t(
-                "Local runtime requires >8GB GPU, cloud runtime requires 302ai API key, elevenlabs runtime requires ElevenLabs API key"
+                "Local runtime requires >8GB GPU, cloud runtime requires 302ai API key, elevenlabs runtime requires ElevenLabs API key, fun_asr_file requires DashScope API key"
             ),
         )
         if runtime != load_key("whisper.runtime"):
@@ -192,6 +206,39 @@ def page_setting():
             config_input(t("WhisperX 302ai API"), "whisper.whisperX_302_api_key")
         if runtime == "elevenlabs":
             config_input(("ElevenLabs API"), "whisper.elevenlabs_api_key")
+        if runtime == "fun_asr_file":
+            config_input("DashScope API", "whisper.fun_asr_file.api_key")
+            config_input("Fun-ASR Model", "whisper.fun_asr_file.model")
+            upload_options = ["dashscope_tmp", "public_url"]
+            upload_provider = st.selectbox(
+                "Fun-ASR Upload Provider",
+                options=upload_options,
+                index=_option_index(upload_options, load_key("whisper.fun_asr_file.upload_provider")),
+            )
+            if upload_provider != load_key("whisper.fun_asr_file.upload_provider"):
+                update_key("whisper.fun_asr_file.upload_provider", upload_provider)
+                st.rerun()
+            enable_itn = st.toggle(
+                "Fun-ASR ITN",
+                value=load_key("whisper.fun_asr_file.enable_itn"),
+            )
+            if enable_itn != load_key("whisper.fun_asr_file.enable_itn"):
+                update_key("whisper.fun_asr_file.enable_itn", enable_itn)
+                st.rerun()
+            cache_enabled = st.toggle(
+                "Fun-ASR Cache",
+                value=load_key("whisper.fun_asr_file.cache"),
+            )
+            if cache_enabled != load_key("whisper.fun_asr_file.cache"):
+                update_key("whisper.fun_asr_file.cache", cache_enabled)
+                st.rerun()
+            if upload_provider == "dashscope_tmp":
+                config_input("DashScope Base URL", "whisper.fun_asr_file.dashscope.base_url")
+            else:
+                with st.expander("Fun-ASR Public URL", expanded=False):
+                    config_input("Public URL Base", "whisper.fun_asr_file.public_url.base_url")
+                    config_input("Public URL Template", "whisper.fun_asr_file.public_url.url_template")
+                    config_input("Local Output Dir", "whisper.fun_asr_file.public_url.local_output_dir")
 
         with c2:
             target_language = st.text_input(

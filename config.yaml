@@ -30,12 +30,37 @@ whisper:
   # Whisper specified recognition language ISO 639-1
   language: 'en'
   detected_language: 'en'
-  # Whisper running mode ["local", "cloud", "elevenlabs"]. Specifies where to run, cloud uses 302.ai API
+  # Whisper running mode ["local", "cloud", "elevenlabs", "fun_asr_file"]. Specifies where to run, cloud uses 302.ai API
   runtime: 'local'
   # 302.ai API key
   whisperX_302_api_key: 'your_302_api_key'
   # ElevenLabs API key (experimental)
   elevenlabs_api_key: 'your_elevenlabs_api_key'
+  # DashScope recorded-file Fun-ASR configuration
+  fun_asr_file:
+    model: 'fun-asr'
+    # env_or_config checks api_key_env first, then api_key
+    api_key_source: 'env_or_config'
+    api_key_env: 'DASHSCOPE_API_KEY'
+    api_key: 'your_dashscope_api_key'
+    language_hints:
+    - 'ja'
+    - 'zh'
+    - 'en'
+    enable_itn: true
+    cache: true
+    upload_provider: 'dashscope_tmp'
+    dashscope:
+      base_url: 'https://dashscope.aliyuncs.com'
+      poll_interval_seconds: 2
+      poll_timeout_seconds: 1800
+      max_retries: 3
+      retry_backoff_seconds: 1
+    public_url:
+      # Advanced: expose local_output_dir through your own OSS/CDN/web server.
+      base_url: ''
+      url_template: ''
+      local_output_dir: 'output/audio/tmp/fun_asr_public'
 
 # Whether to burn subtitles into the video
 burn_subtitles: true

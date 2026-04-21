@@ -37,6 +37,17 @@
 
 > 注意在运行时保持 `tasks_setting.xlsx` 关闭，否则会因占用无法写入而中断。
 
+### 使用 Fun-ASR 处理日语到中文字幕
+
+如需使用 DashScope 录音文件 Fun-ASR 处理日语视频并生成中文字幕：
+
+1. 在 `config.yaml` 中将 `whisper.runtime` 设置为 `fun_asr_file`。
+2. 在环境变量中设置 `DASHSCOPE_API_KEY`，或填写 `whisper.fun_asr_file.api_key`。
+3. 除非你已经通过 OSS、CDN 或 Web 服务器托管切片后的 WAV 文件，否则保持 `whisper.fun_asr_file.upload_provider` 为 `dashscope_tmp`。
+4. 在 `tasks_setting.xlsx` 中，将每个任务的 `Source Language` 设置为 `ja`，`Target Language` 设置为 `简体中文`。
+
+`fun_asr_file` 当前只接受 `ja`、`zh`、`en` 三种源语言提示。其他值会在提交 DashScope 任务前失败。
+
 ## 注意事项
 
 ### 中断处理

@@ -37,6 +37,17 @@ Example:
 
 > Note: Keep `tasks_setting.xlsx` closed during execution to prevent interruptions due to file access conflicts.
 
+### Japanese to Chinese with Fun-ASR
+
+To use DashScope recorded-file Fun-ASR for Japanese source videos and Chinese subtitles:
+
+1. In `config.yaml`, set `whisper.runtime` to `fun_asr_file`.
+2. Set `DASHSCOPE_API_KEY` in your environment, or fill `whisper.fun_asr_file.api_key`.
+3. Keep `whisper.fun_asr_file.upload_provider` as `dashscope_tmp` unless you already host segment WAV files through OSS, CDN, or a web server.
+4. In `tasks_setting.xlsx`, set `Source Language` to `ja` and `Target Language` to `简体中文` for each Japanese-to-Chinese task.
+
+`fun_asr_file` currently accepts `ja`, `zh`, and `en` source language hints. Other values fail before submitting a DashScope job.
+
 ## Important Considerations
 
 ### Handling Interruptions
