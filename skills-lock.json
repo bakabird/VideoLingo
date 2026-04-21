@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "let-gemini-review": {
+      "source": "bakabird/let-agent-review-skills",
+      "sourceType": "github",
+      "computedHash": "94fe129113ebb886d70177fd9db7346499bfdba2bbb7c9624a24a8f47ec55ddb"
+    }
+  }
+}
